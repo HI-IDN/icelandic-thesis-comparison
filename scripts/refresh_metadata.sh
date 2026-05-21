@@ -2,15 +2,15 @@
 set -euo pipefail
 
 DB_PATH="${1:-data/processed/thesis.db}"
-IDS="${2:-4445,25337}"
+IDS="${2:-4445,25337,11956}"
 
 # Ensure metadata tables exist (and are up to date).
 duckdb "$DB_PATH" < scripts/create_thesis_db.sql
 
 # Clear related tables before reloading metadata.
-duckdb "$DB_PATH" "delete from thesis_people;"
-duckdb "$DB_PATH" "delete from people;"
-duckdb "$DB_PATH" "delete from thesis_metadata;"
+duckdb "$DB_PATH" "truncate table thesis_people;"
+duckdb "$DB_PATH" "truncate table people;"
+duckdb "$DB_PATH" "truncate table thesis_metadata;"
 
 # Reload metadata for the requested ids.
 python scripts/metadata_load.py --db "$DB_PATH" --ids "$IDS"

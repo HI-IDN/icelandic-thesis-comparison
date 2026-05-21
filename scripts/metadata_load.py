@@ -187,9 +187,8 @@ def ensure_person(
         from people
         where name = ?
           and coalesce(year_born, -1) = coalesce(?, -1)
-          and coalesce(year_died, -1) = coalesce(?, -1)
         """,
-        [name, year_born, year_died],
+        [name, year_born],
     ).fetchone()
     if row:
         return int(row[0])
@@ -256,6 +255,48 @@ def split_people_values(values: list[str]) -> list[str]:
     return [normalise_text(v) for v in out if normalise_text(v)]
 
 
+def pick_titles_from_metadata(metadata: dict[str, list[str]]) -> tuple[str | None, str | None]:
+    values_all = get_all(
+        metadata,
+        "DCTERMS.title",
+        "DCTERMS.alternative",
+        "citation_title",
+        "Titill",
+        "Title",
+        "dc.title",
+        "dc_title_alternative",
+    )
+    if not values_all:
+        return None, None
+
+    alternatives = get_all(metadata, "DCTERMS.alternative", "dc_title_alternative")
+    title_is_candidates = alternatives if alternatives else [v for v in values_all if
+                                                             is_icelandic_text(v)]
+    title_en_candidates = [v for v in values_all if not is_icelandic_text(v)]
+
+    def unique(values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for value in values:
+            cleaned = normalise_text(value)
+            if not cleaned:
+                continue
+            key = cleaned.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cleaned)
+        return out
+
+    title_is_list = unique(title_is_candidates)
+    title_en_list = unique(title_en_candidates)
+
+    title_is = "; ".join(title_is_list) if title_is_list else None
+    title_en = title_en_list[0] if title_en_list else None
+
+    return title_is, title_en
+
+
 def main() -> None:
     args = parse_args()
     urls = resolve_urls(args.ids, args.urls)
@@ -282,9 +323,7 @@ def main() -> None:
             (out_dir / f"{thesis_id}.html").write_text(html, encoding="utf-8")
             metadata = metadata_from_html(html)
 
-            title_en = get_first(metadata, "DCTERMS.title", "citation_title", "Title", "dc.title")
-            title_is = get_first(metadata, "DCTERMS.alternative", "Titill")
-
+            title_is, title_en = pick_titles_from_metadata(metadata)
             abstract_is = get_first(metadata, "DCTERMS.abstract", "Útdráttur")
             abstract_en = get_first(metadata, "Abstract", "dc.description.abstract")
             if abstract_is and not abstract_en and not is_icelandic_text(abstract_is):

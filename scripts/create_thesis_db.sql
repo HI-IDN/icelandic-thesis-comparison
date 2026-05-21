@@ -71,6 +71,7 @@ create table if not exists people
 );
 
 create unique index if not exists people_id_pk on people(id);
+create unique index if not exists people_name_year_pk on people(name, year_born);
 
 create table if not exists thesis_people
 (
