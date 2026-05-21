@@ -31,6 +31,12 @@ pip install -r requirements.txt
 
 ## Run
 
+Create the database schema (table + view):
+
+```bash
+duckdb data/processed/thesis.db < scripts/create_thesis_db.sql
+```
+
 Single-page listing capture (25 rows per page):
 
 ```bash
