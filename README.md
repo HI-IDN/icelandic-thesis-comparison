@@ -49,6 +49,12 @@ Metadata retrieval (step 2, reads item URLs and inserts into metadata tables):
 python scripts/metadata_load.py --db data/processed/thesis.db --ids 4445,25337
 ```
 
+Update missing metadata rows (only for thesis ids without metadata):
+
+```bash
+python scripts/update_missing_metadata.py --db data/processed/thesis.db
+```
+
 Year-by-year capture (2010–2026) for both handles:
 
 ```bash
