@@ -1,0 +1,107 @@
+# Seed collections for Skemman crawling.
+# Handles are intentionally stored without a URL prefix.
+# The crawler will use https://skemman.is/handle/<handle>
+
+base_url: "https://skemman.is"
+user_agent: "skemman-scraper/0.1 research crawler; contact: replace-with-email@example.com"
+request_delay_seconds: 2.0
+timeout_seconds: 30
+cache_html: true
+download_pdfs: false
+year_min: null
+year_max: null
+
+institutions:
+  - name: "Háskóli Íslands"
+    short_name: "HI"
+    enabled: true
+    seed_handles:
+      - "1946/2064"
+    target_labels:
+      - "B.S. verkefni - Verkfræði- og náttúruvísindasvið"
+      - "Doktorsritgerðir - Verkfræði- og náttúruvísindasvið"
+      - "Meistaraprófsritgerðir - Verkfræði- og náttúruvísindasvið"
+
+  - name: "Háskólinn í Reykjavík"
+    short_name: "HR"
+    enabled: true
+    seed_handles:
+      - "1946/6870"
+    target_labels:
+      - "BSc Tæknifræðideild / Department of Applied Engineering"
+      - "BSc Tölvunarfræðideild / Department of Computer Science"
+      - "BSc Verkfræðideild"
+      - "Dip Tæknifræðideild"
+      - "Dip Tölvunarfræðideild"
+      - "MEd/MPM/MSc Verkfræðideild"
+      - "MSc Tölvunarfræðideild"
+      - "PhD (-2016)"
+
+topic_keywords:
+  artificial_intelligence:
+    - "artificial intelligence"
+    - "machine learning"
+    - "deep learning"
+    - "gervigreind"
+    - "vélanám"
+  optimization:
+    - "optimization"
+    - "optimisation"
+    - "bestun"
+    - "aðgerðagreining"
+    - "operations research"
+  software_engineering:
+    - "software engineering"
+    - "hugbúnaðarverkfræði"
+    - "software development"
+    - "forritun"
+  data_science:
+    - "data science"
+    - "gagnavísindi"
+    - "business intelligence"
+    - "viðskiptagreind"
+  energy:
+    - "energy"
+    - "orka"
+    - "renewable"
+    - "jarðhiti"
+  fisheries:
+    - "fisheries"
+    - "fisk"
+    - "sjávarútvegur"
+    - "hafrannsóknir"
+  health:
+    - "health"
+    - "heilbrigði"
+    - "medical"
+    - "spítali"
+
+external_involvement_patterns:
+  collaboration:
+    - "in collaboration with"
+    - "í samstarfi við"
+    - "unnið í samstarfi við"
+    - "samstarfsverkefni"
+  done_for:
+    - "for the company"
+    - "fyrir fyrirtækið"
+    - "unnið fyrir"
+    - "verkefnið var unnið fyrir"
+  data_from:
+    - "data from"
+    - "gögn frá"
+    - "provided by"
+    - "útvegaði gögn"
+  public_sector:
+    - "Landspítali"
+    - "Hafrannsóknastofnun"
+    - "Vegagerðin"
+    - "Orkustofnun"
+    - "Reykjavíkurborg"
+  companies:
+    - "Marel"
+    - "deCODE"
+    - "CCP"
+    - "Össur"
+    - "Landsvirkjun"
+    - "Orkuveita Reykjavíkur"

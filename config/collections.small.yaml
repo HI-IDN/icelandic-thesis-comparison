@@ -1,0 +1,18 @@
+# Minimal sanity-check config for Skemman crawling.
+base_url: "https://skemman.is"
+user_agent: "skemman-scraper/0.1 research crawler"
+request_delay_seconds: 2.0
+timeout_seconds: 30
+cache_html: true
+download_pdfs: false
+year_min: null
+year_max: null
+
+institutions:
+  - name: "Háskóli Íslands"
+    short_name: "HI"
+    enabled: true
+    seed_handles:
+      - "1946/2064"
+    target_labels: [ ]
+
