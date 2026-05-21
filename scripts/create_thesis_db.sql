@@ -46,6 +46,8 @@ create table if not exists thesis_metadata
     related_url
     varchar,
     raw_keywords
+    varchar,
+    pdf_url
     varchar
 );
 

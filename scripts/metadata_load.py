@@ -79,6 +79,20 @@ def metadata_from_html(html: str) -> dict[str, list[str]]:
         if key and val:
             metadata.setdefault(key, []).append(normalise_text(val) or val)
 
+    for attr in soup.select("div.attr"):
+        label = attr.select_one(".attrLabel")
+        content = attr.select_one(".attrContent")
+        if not label or not content:
+            continue
+        key = normalise_text(label.get_text(" "))
+        if not key:
+            continue
+        items = [normalise_text(li.get_text(" ")) for li in content.find_all("li")]
+        values = [v for v in items if v] if items else [normalise_text(content.get_text(" "))]
+        for val in values:
+            if val:
+                metadata.setdefault(key.rstrip(":"), []).append(val)
+
     return metadata
 
 
@@ -100,15 +114,33 @@ def get_all(metadata: dict[str, list[str]], *keys: str) -> list[str]:
 
 
 def split_keywords(values: list[str]) -> list[str]:
+    seen: set[str] = set()
     out: list[str] = []
     for value in values:
         parts = [p.strip() for p in re.split(r"[;,]", value)]
-        out.extend([p for p in parts if p])
+        for part in parts:
+            cleaned = normalise_text(part)
+            if not cleaned:
+                continue
+            norm = cleaned.casefold()
+            if norm == "thesis":
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append(cleaned)
     return out
 
 
+def is_icelandic_text(text: str) -> bool:
+    return bool(re.search(r"[áðéíóúýþæö]", text.lower()))
+
+
 def is_person_candidate(text: str) -> bool:
-    return bool(re.search(r"\d{4}-(\d{4})?$", text) or re.search(r"\w+,\s*\w+", text))
+    if re.search(r"\d{4}-(\d{4})?$", text):
+        return True
+    # Accept only a single-comma "Last, First" pattern.
+    return bool(re.match(r"^[^,]+,\s*[^,]+$", text))
 
 
 def pick_degree(types: list[str]) -> str | None:
@@ -210,6 +242,20 @@ def extract_id_from_url(url: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def split_people_values(values: list[str]) -> list[str]:
+    out: list[str] = []
+    year_pattern = r"[A-Za-zÁ-ÖÞÆÖáðéíóúýþæö][^,\d]{2,}\d{4}-(?:\d{4})?"
+    comma_pattern = r"[^,]+?,\s*[^,]+"
+    combined = re.compile(rf"({year_pattern}|{comma_pattern})")
+    for value in values:
+        matches = [m.group(0).strip() for m in combined.finditer(value)]
+        if matches:
+            out.extend(matches)
+        else:
+            out.append(value)
+    return [normalise_text(v) for v in out if normalise_text(v)]
+
+
 def main() -> None:
     args = parse_args()
     urls = resolve_urls(args.ids, args.urls)
@@ -241,6 +287,9 @@ def main() -> None:
 
             abstract_is = get_first(metadata, "DCTERMS.abstract", "Útdráttur")
             abstract_en = get_first(metadata, "Abstract", "dc.description.abstract")
+            if abstract_is and not abstract_en and not is_icelandic_text(abstract_is):
+                abstract_en = abstract_is
+                abstract_is = None
 
             types = get_all(metadata, "DCTERMS.type", "Type", "dc.type")
             degree_raw = get_first(metadata, "Námsstig", "Degree", "dc.description.degree")
@@ -248,13 +297,13 @@ def main() -> None:
 
             sponsor = get_first(metadata, "Styrktaraðili", "Sponsor")
             related_url = get_first(metadata, "Tengd vefslóð", "Related URL", "DCTERMS.relation")
+            pdf_url = get_first(metadata, "citation_pdf_url", "PDF", "Bitstream")
             keywords = split_keywords(
                 get_all(metadata, "DCTERMS.subject", "citation_keywords", "Efnisorð", "dc.subject")
             )
 
             descriptions = get_all(metadata, "DCTERMS.description")
-            advisor_fallback = [d for d in descriptions if is_person_candidate(d)]
-            sponsor_fallback = [d for d in descriptions if d not in advisor_fallback]
+            sponsor_fallback = [d for d in descriptions if not is_person_candidate(d)]
             if not sponsor and sponsor_fallback:
                 sponsor = "; ".join(sponsor_fallback)
 
@@ -270,8 +319,9 @@ def main() -> None:
                                              thesis_type,
                                              sponsor,
                                              related_url,
-                                             raw_keywords)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             raw_keywords,
+                                             pdf_url)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     thesis_id,
@@ -284,6 +334,7 @@ def main() -> None:
                     sponsor,
                     related_url,
                     "; ".join(keywords) if keywords else None,
+                    pdf_url,
                 ],
             )
 
@@ -303,8 +354,9 @@ def main() -> None:
                 "Advisor",
                 "dc.contributor.advisor",
             )
-            if not advisors and advisor_fallback:
-                advisors = advisor_fallback
+
+            authors = split_people_values(authors)
+            advisors = split_people_values(advisors)
 
             author_people = [parse_person_name(a) for a in authors]
             advisor_people = [parse_person_name(a) for a in advisors]
