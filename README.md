@@ -37,10 +37,16 @@ Create the database schema (table + view):
 duckdb data/processed/thesis.db < scripts/create_thesis_db.sql
 ```
 
-Single-page listing capture (25 rows per page):
+Listing capture (step 1):
 
 ```bash
 skemman simple-search --location 1946/6870 --year 2016 --no-paginate --output data/processed/thesis.db
+```
+
+Metadata retrieval (step 2, reads item URLs and inserts into metadata tables):
+
+```bash
+python scripts/metadata_load.py --db data/processed/thesis.db --ids 4445,25337
 ```
 
 Year-by-year capture (2010–2026) for both handles:
@@ -60,6 +66,8 @@ Notes:
 - Pagination is on by default; use `--no-paginate` for a single page.
 - Use `--year` to filter; no additional limiting is applied.
 - You can pass locations as `1946/24751` or `1946 24751`.
+- Metadata retrieval (titles/abstracts/advisors/keywords/sponsors) is a second step and is not done
+  via `simple-search`.
 
 Future work (not implemented yet):
 
