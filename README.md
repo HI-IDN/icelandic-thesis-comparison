@@ -15,34 +15,10 @@ The project is designed for a research workflow:
 
 The seed configuration includes:
 
-### Háskóli Íslands
-
-Main collection handle:
-
-- `1946/2064`
-
-Target subcollections described by user:
-
-- B.S. verkefni - Verkfræði- og náttúruvísindasvið
-- Doktorsritgerðir - Verkfræði- og náttúruvísindasvið
-- Meistaraprófsritgerðir - Verkfræði- og náttúruvísindasvið
-
-### Háskólinn í Reykjavík
-
-Main collection handle:
-
-- `1946/6870`
-
-Target subcollections described by user:
-
-- BSc Tæknifræðideild / Department of Applied Engineering
-- BSc Tölvunarfræðideild / Department of Computer Science
-- BSc Verkfræðideild...
-- Dip Tæknifræðideild
-- Dip Tölvunarfræðideild
-- MEd/MPM/MSc Verkfræðideild...
-- MSc Tölvunarfræðideild
-- PhD (-2016)
+| Institution                                                   | Handle      | Subcollections (examples)                                                                            |
+|---------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------|
+| Háskóli Íslands (HÍ) – Verkfræði- og náttúruvísindasvið       | `1946/2064` | B.S. verkefni; Meistaraprófsritgerðir; Doktorsritgerðir                                              |
+| Háskólinn í Reykjavík (HR) – Tæknisvið / School of Technology | `1946/6870` | BSc Tæknifræðideild; BSc Tölvunarfræðideild; BSc Verkfræðideild; MSc Tölvunarfræðideild; PhD (-2016) |
 
 ## Install
 
@@ -59,6 +35,16 @@ Single-page listing capture (25 rows per page):
 
 ```bash
 skemman simple-search --location 1946/6870 --year 2016 --no-paginate --output data/processed/thesis.db
+```
+
+Year-by-year capture (2010–2026) for both handles:
+
+```bash
+for i in {2010..2026}; do
+  echo $i
+  skemman simple-search --location 1946/2064 --year $i --output data/processed/thesis.db
+  skemman simple-search --location 1946/6870 --year $i --output data/processed/thesis.db
+ done
 ```
 
 Notes:
