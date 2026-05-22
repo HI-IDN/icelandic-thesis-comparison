@@ -164,6 +164,74 @@ Keywords are:
 - normalized into the `keywords` table
 - linked through `thesis_keywords`
 
+### Database diagram
+
+````mermaid
+erDiagram
+
+    thesis {
+        INTEGER id PK
+        DATE date_accepted
+        VARCHAR title
+        VARCHAR authors
+    }
+
+    thesis_metadata {
+        INTEGER thesis_id PK
+        VARCHAR title_is
+        VARCHAR title_en
+        VARCHAR abstract_is
+        VARCHAR abstract_en
+        VARCHAR degree_level
+        VARCHAR thesis_type
+        VARCHAR sponsor
+        VARCHAR note
+        VARCHAR related_url
+        VARCHAR raw_keywords
+        VARCHAR pdf_url
+        VARCHAR institution
+        VARCHAR school
+        VARCHAR university
+        VARCHAR faculty
+        VARCHAR study_category
+        VARCHAR thesis_type_label
+    }
+
+    people {
+        BIGINT id PK
+        VARCHAR name
+        INTEGER year_born
+        INTEGER year_died
+    }
+
+    thesis_people {
+        INTEGER thesis_id FK
+        BIGINT person_id FK
+        VARCHAR role
+        INTEGER sort_order
+    }
+
+    keywords {
+        BIGINT id PK
+        VARCHAR keyword
+        VARCHAR keyword_norm
+    }
+
+    thesis_keywords {
+        INTEGER thesis_id FK
+        BIGINT keyword_id FK
+        INTEGER sort_order
+    }
+
+    thesis ||--|| thesis_metadata : metadata
+
+    thesis ||--o{ thesis_people : has_people
+    people ||--o{ thesis_people : linked_to
+
+    thesis ||--o{ thesis_keywords : has_keywords
+    keywords ||--o{ thesis_keywords : linked_to
+````
+
 ## Repository layout
 
 ```text
