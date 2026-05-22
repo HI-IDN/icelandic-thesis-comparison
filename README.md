@@ -49,22 +49,6 @@ Metadata retrieval (step 2, reads item URLs and inserts into metadata tables):
 python scripts/metadata_load.py --db data/processed/thesis.db --ids 4445,25337
 ```
 
-Update missing metadata rows (only for thesis ids without metadata):
-
-```bash
-python scripts/update_missing_metadata.py --db data/processed/thesis.db
-```
-
-Year-by-year capture (2010–2026) for both handles:
-
-```bash
-for i in {2010..2026}; do
-  echo $i
-  skemman simple-search --location 1946/2064 --year $i --output data/processed/thesis.db
-  skemman simple-search --location 1946/6870 --year $i --output data/processed/thesis.db
- done
-```
-
 Notes:
 
 - The scraper builds the URL for you; the exact URL is printed and also stored in the `source_url`
@@ -73,26 +57,13 @@ Notes:
 - Use `--year` to filter; no additional limiting is applied.
 - You can pass locations as `1946/24751` or `1946 24751`.
 - Metadata retrieval (titles/abstracts/advisors/keywords/sponsors) is a second step and is not done
-  via `simple-search`.
+  via `simple-search`, but rather `metadata_load`.
 
 Future work (not implemented yet):
 
-- Harvest item pages for richer metadata.
 - Extract PDF text for public PDFs.
 - Classify topics and external involvement.
 - Export analysis tables.
-
-Full URL capture (use the exact query you want):
-
-```bash
-skemman simple-search --url "https://skemman.is/simple-search?location=1946%2F6870&query=&filtername=dateIssued&filtertype=equals&filterquery=2016&doSearch=Leita&rpp=25&sort_by=score&order=desc" --output data/processed/thesis.db
-```
-
-Háskóli Íslands example (year filter in the URL):
-
-```bash
-skemman simple-search --url "https://skemman.is/simple-search?location=1946%2F2064&query=&filter_field_1=dateIssued&filter_type_1=equals&filter_value_1=2016&filtername=author&filtertype=equals&filterquery=&doSearch=Leita&rpp=25&sort_by=score&order=desc" --output data/processed/thesis.db
-```
 
 ## Configuration
 
@@ -139,6 +110,59 @@ The default classifier uses a graded variable rather than a binary flag.
 |    4 | Employment/industrial project explicitly stated  |
 
 The classifier should keep an evidence sentence and confidence score for auditability.
+
+## Metadata schema
+
+`metadata_load.py` extracts structured metadata from Skemman item pages using both:
+
+- visible HTML label/value sections (`Titill`, `Útdráttur`, etc.)
+- embedded `<meta>` tags (`DCTERMS.*`, `citation_*`, etc.)
+
+The database uses a normalized schema:
+
+- `thesis_metadata`: core thesis-level metadata
+- `people`: deduplicated people table
+- `thesis_people`: thesis/person relationship table (`author`, `advisor`)
+- `keywords`: deduplicated keyword table
+- `thesis_keywords`: thesis/keyword relationship table
+
+A convenience view, `v_thesis_metadata`, exposes authors, advisors,
+and keywords as DuckDB array/list columns.
+
+| Database column              | HTML sources                                                  | Notes                                                          |
+|------------------------------|---------------------------------------------------------------|----------------------------------------------------------------|
+| `title_is`, `title_en`       | `Titill`, `Title`, `DCTERMS.title`, `citation_title`          | Icelandic vs English detected heuristically                    |
+| `abstract_is`, `abstract_en` | `Útdráttur`, `DCTERMS.abstract`, `dc.description.abstract`    | Icelandic abstract may be extracted from `DCTERMS.description` |
+| `degree_level`               | `Námsstig`, `Degree`, `dc.description.degree`, `DCTERMS.type` | Normalized to `bachelor`, `master`, `phd`                      |
+| `sponsor`                    | `Styrktaraðili`, `Sponsor`                                    | Stored as-is                                                   |
+| `note`                       | `Athugasemdir`, `Athugasemd`, `Notes`, `Note`                 | Concatenated with `; `                                         |
+| `related_url`                | `Tengd vefslóð`, `DCTERMS.relation`                           | Stored as-is                                                   |
+| `pdf_url`                    | `Skrár` table and `citation_pdf_url`                          | Prefers `Heildartexti` or `Meginmál`                           |
+| `university`                 | Breadcrumb trail                                              | Breadcrumb level 1                                             |
+| `school`                     | Breadcrumb trail                                              | Breadcrumb level 2                                             |
+| `study_category`             | Breadcrumb trail                                              | Breadcrumb level 3                                             |
+| `thesis_type`                | Breadcrumb trail                                              | Breadcrumb level 4                                             |
+
+### People extraction
+
+Authors and advisors are extracted into normalized tables:
+
+- `people`
+- `thesis_people`
+
+Roles currently include:
+
+- `author`
+- `advisor`
+
+### Keyword extraction
+
+Keywords are:
+
+- split on `;` and `,`
+- deduplicated case-insensitively
+- normalized into the `keywords` table
+- linked through `thesis_keywords`
 
 ## Repository layout
 

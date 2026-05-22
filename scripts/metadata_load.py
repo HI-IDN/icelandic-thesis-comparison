@@ -4,12 +4,24 @@ import argparse
 import re
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import urljoin
 
 import duckdb
 from bs4 import BeautifulSoup
 
 from skemman_scraper.utils import PoliteSession
 
+NOTE_KEYS = ["Athugasemdir", "Athugasemd", "Notes", "Note"]
+SPONSOR_KEYS = ["Styrktaraðili", "Sponsor"]
+RELATED_URL_KEYS = ["Tengd vefslóð", "Related URL", "DCTERMS.relation"]
+PDF_URL_KEYS = ["citation_pdf_url", "PDF", "Bitstream"]
+
+NOTE_PREFIXES = ["athugasemdir", "athugasemd", "athugsemd"]
+NOTE_PHRASES = ["ritgerðin er lokuð", "vantar forsíðu"]
+NOTE_KEYWORDS = ["closed"]
+
+PDF_LABEL_PRIORITY = ["Heildartexti", "Meginmál"]
+SKEMMAN_BASE_URL = "https://skemman.is"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -113,6 +125,23 @@ def get_all(metadata: dict[str, list[str]], *keys: str) -> list[str]:
     return [v for v in out if v]
 
 
+def get_joined(metadata: dict[str, list[str]], *keys: str) -> str | None:
+    values = get_all(metadata, *keys)
+    return "; ".join(values) if values else None
+
+
+def merge_note_values(*values: str | None) -> str | None:
+    parts: list[str] = []
+    for value in values:
+        cleaned = normalise_text(value)
+        if not cleaned:
+            continue
+        if cleaned in parts:
+            continue
+        parts.append(cleaned)
+    return "; ".join(parts) if parts else None
+
+
 def split_keywords(values: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -138,6 +167,8 @@ def is_icelandic_text(text: str) -> bool:
 
 def is_person_candidate(text: str) -> bool:
     if re.search(r"\d{4}-(\d{4})?$", text):
+        return True
+    if re.search(r"\b\d{4}\b", text) and len(text) <= 120:
         return True
     # Accept only a single-comma "Last, First" pattern.
     return bool(re.match(r"^[^,]+,\s*[^,]+$", text))
@@ -199,27 +230,80 @@ def ensure_person(
     return int(inserted[0])
 
 
+def keyword_norm(value: str) -> str:
+    return value.casefold().strip()
+
+
+def ensure_keyword(
+        con: duckdb.DuckDBPyConnection,
+        keyword: str,
+) -> int:
+    norm = keyword_norm(keyword)
+    row = con.execute(
+        "select id from keywords where keyword_norm = ?",
+        [norm],
+    ).fetchone()
+    if row:
+        return int(row[0])
+
+    inserted = con.execute(
+        "insert into keywords (keyword, keyword_norm) values (?, ?) returning id",
+        [keyword, norm],
+    ).fetchone()
+    return int(inserted[0])
+
+
 def insert_people_links(
         con: duckdb.DuckDBPyConnection,
         thesis_id: int,
         people: Iterable[tuple[str, int | None, int | None]],
         role: str,
 ) -> None:
-    for name, year_born, year_died in people:
+    for sort_order, (name, year_born, year_died) in enumerate(people):
         if not name:
             continue
         person_id = ensure_person(con, name, year_born, year_died)
         con.execute(
             """
-            insert into thesis_people (thesis_id, person_id, role)
+            insert into thesis_people (thesis_id, person_id, role, sort_order)
+            select ?,
+                   ?,
+                   ?,
+                   ? where not exists (
+                select 1
+                from thesis_people
+                where thesis_id = ?
+                  and person_id = ?
+                  and role = ?
+            )
+            """,
+            [thesis_id, person_id, role, sort_order, thesis_id, person_id, role],
+        )
+
+
+def insert_keyword_links(
+        con: duckdb.DuckDBPyConnection,
+        thesis_id: int,
+        keywords: Iterable[str],
+) -> None:
+    for sort_order, keyword in enumerate(keywords):
+        cleaned = normalise_text(keyword)
+        if not cleaned:
+            continue
+        keyword_id = ensure_keyword(con, cleaned)
+        con.execute(
+            """
+            insert into thesis_keywords (thesis_id, keyword_id, sort_order)
             select ?,
                    ?,
                    ? where not exists (
-                select 1 from thesis_people
-                where thesis_id = ? and person_id = ? and role = ?
+                select 1
+                from thesis_keywords
+                where thesis_id = ?
+                  and keyword_id = ?
             )
             """,
-            [thesis_id, person_id, role, thesis_id, person_id, role],
+            [thesis_id, keyword_id, sort_order, thesis_id, keyword_id],
         )
 
 
@@ -379,11 +463,13 @@ def extract_notes(descriptions: list[str]) -> tuple[str | None, list[str]]:
         if not cleaned:
             continue
         lower = cleaned.casefold()
-        if lower.startswith("athugasemdir"):
+        if any(lower.startswith(prefix) for prefix in NOTE_PREFIXES):
             note = cleaned.split(":", 1)[1].strip() if ":" in cleaned else cleaned
             notes.append(note or cleaned)
             continue
-        if "vantar forsíðu" in lower:
+        if any(phrase in lower for phrase in NOTE_PHRASES) or any(
+                keyword in lower for keyword in NOTE_KEYWORDS
+        ):
             notes.append(cleaned)
             continue
         remaining.append(cleaned)
@@ -397,9 +483,64 @@ def extract_breadcrumbs(html: str) -> list[str]:
             normalise_text(link.get_text(" "))]
 
 
+def pick_pdf_url(html: str, metadata: dict[str, list[str]]) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.select_one("table.t-data-grid")
+    pdf_rows: list[tuple[str, str]] = []
+    if table:
+        for row in table.select("tbody tr"):
+            cells: dict[str, str | None] = {}
+            for cell in row.find_all("td"):
+                headers = cell.get("headers")
+                if isinstance(headers, (list, tuple)):
+                    header_keys = [str(h) for h in headers]
+                elif headers:
+                    header_keys = [str(headers)]
+                else:
+                    header_keys = []
+
+                value = normalise_text(cell.get_text(" "))
+                for header_key in header_keys:
+                    cells[header_key] = value
+
+            file_type = (cells.get("t5") or "").casefold()
+            if file_type != "pdf":
+                continue
+            label = cells.get("t4") or ""
+            link = row.select_one("a[href]")
+            if not link:
+                continue
+            href = link.get("href") or ""
+            pdf_rows.append((label, href))
+    if pdf_rows:
+        for preferred in PDF_LABEL_PRIORITY:
+            for label, href in pdf_rows:
+                if preferred.casefold() in (label or "").casefold():
+                    return urljoin(SKEMMAN_BASE_URL, href)
+        return urljoin(SKEMMAN_BASE_URL, pdf_rows[0][1])
+    return get_first(metadata, *PDF_URL_KEYS)
+
+
 def main() -> None:
     args = parse_args()
     urls = resolve_urls(args.ids, args.urls)
+
+    if not urls:
+        with duckdb.connect(args.db) as con:
+            rows = con.execute(
+                """
+                select v.item_url
+                from v_thesis v
+                         left join thesis_metadata m
+                                   on m.thesis_id = v.id
+                where m.thesis_id is null
+                order by v.id
+                """
+            ).fetchall()
+
+            urls = [row[0] for row in rows]
+            print(f"Found {len(urls)} thesis ids missing metadata.")
+
     if not urls:
         raise SystemExit("Provide --ids or --urls.")
 
@@ -427,8 +568,12 @@ def main() -> None:
                 html_path.write_text(html, encoding="utf-8")
             metadata = metadata_from_html(html)
             breadcrumbs = extract_breadcrumbs(html)
-            institution = breadcrumbs[0] if len(breadcrumbs) >= 1 else None
-            school = breadcrumbs[1] if len(breadcrumbs) >= 2 else None
+            university = breadcrumbs[0] if len(breadcrumbs) >= 1 else None
+            faculty = breadcrumbs[1] if len(breadcrumbs) >= 2 else None
+            study_category = breadcrumbs[2] if len(breadcrumbs) >= 3 else None
+            thesis_type_label = breadcrumbs[3] if len(breadcrumbs) >= 4 else None
+            institution = university
+            school = faculty
 
             title_is, title_en = pick_titles_from_metadata(metadata)
             abstract_is = get_first(metadata, "DCTERMS.abstract", "Útdráttur")
@@ -442,10 +587,10 @@ def main() -> None:
             degree_level = normalise_degree(degree_raw) or pick_degree(types)
             thesis_type = "; ".join(normalize_thesis_types(types, degree_level)) if types else None
 
-            sponsor = get_first(metadata, "Styrktaraðili", "Sponsor")
-            note = get_first(metadata, "Athugasemdir", "Athugasemd", "Notes", "Note")
-            related_url = get_first(metadata, "Tengd vefslóð", "Related URL", "DCTERMS.relation")
-            pdf_url = get_first(metadata, "citation_pdf_url", "PDF", "Bitstream")
+            sponsor = get_first(metadata, *SPONSOR_KEYS)
+            note = get_joined(metadata, *NOTE_KEYS)
+            related_url = get_first(metadata, *RELATED_URL_KEYS)
+            pdf_url = pick_pdf_url(html, metadata)
             keywords = split_keywords(
                 get_all(metadata, "DCTERMS.subject", "citation_keywords", "Efnisorð", "dc.subject")
             )
@@ -455,14 +600,12 @@ def main() -> None:
             if description_abstract_is and not abstract_is:
                 abstract_is = description_abstract_is
 
-            extracted_note, descriptions = extract_notes(descriptions)
-            if not note and extracted_note:
-                note = extracted_note
-            sponsor_fallback = [d for d in descriptions if not is_person_candidate(d)]
-            if not sponsor and sponsor_fallback:
-                sponsor = "; ".join(sponsor_fallback)
+            extracted_note, _ = extract_notes(descriptions)
+            note = merge_note_values(note, extracted_note)
 
             con.execute("delete from thesis_metadata where thesis_id = ?", [thesis_id])
+            con.execute("delete from thesis_people where thesis_id = ?", [thesis_id])
+            con.execute("delete from thesis_keywords where thesis_id = ?", [thesis_id])
             con.execute(
                 """
                 insert into thesis_metadata (thesis_id,
@@ -478,8 +621,12 @@ def main() -> None:
                                              raw_keywords,
                                              pdf_url,
                                              institution,
-                                             school)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             school,
+                                             university,
+                                             faculty,
+                                             study_category,
+                                             thesis_type_label)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     thesis_id,
@@ -496,6 +643,10 @@ def main() -> None:
                     pdf_url,
                     institution,
                     school,
+                    university,
+                    faculty,
+                    study_category,
+                    thesis_type_label,
                 ],
             )
 
@@ -524,6 +675,7 @@ def main() -> None:
 
             insert_people_links(con, thesis_id, author_people, "author")
             insert_people_links(con, thesis_id, advisor_people, "advisor")
+            insert_keyword_links(con, thesis_id, keywords)
 
 
 if __name__ == "__main__":
