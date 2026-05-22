@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 
 import duckdb
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 from skemman_scraper.utils import PoliteSession
 
@@ -555,7 +556,7 @@ def main() -> None:
     )
 
     with duckdb.connect(args.db) as con:
-        for url in urls:
+        for url in tqdm(urls, desc="Processing metadata"):
             thesis_id = extract_id_from_url(url)
             if thesis_id is None:
                 continue
