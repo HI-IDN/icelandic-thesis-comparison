@@ -70,4 +70,4 @@ Raw item HTML is cached under `data/raw/items/`. If `data/raw/items/<thesis_id>.
 
 The database mapping is documented in [docs/skemman_database_mapping.md](docs/skemman_database_mapping.md).
 
-Useful SQL checks are in `scripts/useful_queries.sql` and `scripts/test_metadata.sql`.
+Useful SQL checks are in `scripts/useful_queries.sql`.
