@@ -43,6 +43,8 @@ create table if not exists thesis_metadata
     varchar,
     sponsor
     varchar,
+    note
+    varchar,
     related_url
     varchar,
     raw_keywords

@@ -346,6 +346,50 @@ def pick_titles_from_metadata(metadata: dict[str, list[str]]) -> tuple[str | Non
     return title_is, title_en
 
 
+def extract_icelandic_abstract(descriptions: list[str]) -> tuple[str | None, list[str]]:
+    prefixes = [
+        "íslenskt ágrip:",
+        "íslenskt ágrip",
+        "ágrip:",
+        "ágrip",
+    ]
+    remaining: list[str] = []
+    abstract_is: str | None = None
+    for value in descriptions:
+        cleaned = normalise_text(value)
+        if not cleaned:
+            continue
+        lower = cleaned.casefold()
+        matched = False
+        for prefix in prefixes:
+            if lower.startswith(prefix):
+                matched = True
+                abstract_is = cleaned[len(prefix):].strip() or abstract_is
+                break
+        if not matched:
+            remaining.append(cleaned)
+    return abstract_is, remaining
+
+
+def extract_notes(descriptions: list[str]) -> tuple[str | None, list[str]]:
+    notes: list[str] = []
+    remaining: list[str] = []
+    for value in descriptions:
+        cleaned = normalise_text(value)
+        if not cleaned:
+            continue
+        lower = cleaned.casefold()
+        if lower.startswith("athugasemdir"):
+            note = cleaned.split(":", 1)[1].strip() if ":" in cleaned else cleaned
+            notes.append(note or cleaned)
+            continue
+        if "vantar forsíðu" in lower:
+            notes.append(cleaned)
+            continue
+        remaining.append(cleaned)
+    return ("; ".join(notes) if notes else None), remaining
+
+
 def extract_breadcrumbs(html: str) -> list[str]:
     soup = BeautifulSoup(html, "html.parser")
     links = soup.select("span.trail a")
@@ -399,6 +443,7 @@ def main() -> None:
             thesis_type = "; ".join(normalize_thesis_types(types, degree_level)) if types else None
 
             sponsor = get_first(metadata, "Styrktaraðili", "Sponsor")
+            note = get_first(metadata, "Athugasemdir", "Athugasemd", "Notes", "Note")
             related_url = get_first(metadata, "Tengd vefslóð", "Related URL", "DCTERMS.relation")
             pdf_url = get_first(metadata, "citation_pdf_url", "PDF", "Bitstream")
             keywords = split_keywords(
@@ -406,6 +451,13 @@ def main() -> None:
             )
 
             descriptions = get_all(metadata, "DCTERMS.description")
+            description_abstract_is, descriptions = extract_icelandic_abstract(descriptions)
+            if description_abstract_is and not abstract_is:
+                abstract_is = description_abstract_is
+
+            extracted_note, descriptions = extract_notes(descriptions)
+            if not note and extracted_note:
+                note = extracted_note
             sponsor_fallback = [d for d in descriptions if not is_person_candidate(d)]
             if not sponsor and sponsor_fallback:
                 sponsor = "; ".join(sponsor_fallback)
@@ -421,12 +473,13 @@ def main() -> None:
                                              degree_level,
                                              thesis_type,
                                              sponsor,
+                                             note,
                                              related_url,
                                              raw_keywords,
                                              pdf_url,
                                              institution,
                                              school)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     thesis_id,
@@ -437,6 +490,7 @@ def main() -> None:
                     degree_level,
                     thesis_type,
                     sponsor,
+                    note,
                     related_url,
                     "; ".join(keywords) if keywords else None,
                     pdf_url,
