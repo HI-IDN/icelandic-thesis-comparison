@@ -1,266 +1,73 @@
-# Icelandic Thesis Scraper and Comparison (Skemman + Opin vísindi)
+# Icelandic Thesis Metadata Loader
 
-Starter repository for collecting and analyzing thesis metadata from [Skemman](https://skemman.is/),
-with an initial focus on comparing Háskóli Íslands (HÍ) and Háskólinn í Reykjavík (HR) across B.S.,
-M.S., and PhD levels.
+This repository collects Icelandic BSc and master's thesis records from Skemman into DuckDB.
 
-The project is designed for a research workflow:
+The current workflow has two steps:
 
-1. harvest public Skemman collection/item metadata;
-2. extract abstracts and public PDF text where available;
-3. classify thesis topics and external industry/institution involvement;
-4. export reproducible analysis tables for R, Python, Quarto, or LaTeX.
-
-## Initial target collections
-
-The seed configuration includes:
-
-| Institution                                                   | Handle      | Subcollections (examples)                                                                            |
-|---------------------------------------------------------------|-------------|------------------------------------------------------------------------------------------------------|
-| Háskóli Íslands (HÍ) – Verkfræði- og náttúruvísindasvið       | `1946/2064` | B.S. verkefni; Meistaraprófsritgerðir; Doktorsritgerðir                                              |
-| Háskólinn í Reykjavík (HR) – Tæknisvið / School of Technology | `1946/6870` | BSc Tæknifræðideild; BSc Tölvunarfræðideild; BSc Verkfræðideild; MSc Tölvunarfræðideild; PhD (-2016) |
+1. Run Skemman `simple-search` for the HI and HR handles, year by year for 2010 through 2026.
+2. Run the metadata loader. It fetches each Skemman item page unless the cached HTML file already exists, then parses the relevant metadata into normalized database tables.
 
 ## Install
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows MSYS/Git Bash
-# or: .venv\Scripts\activate  # PowerShell
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Run
+PowerShell activation:
 
-Create the database schema (table + view):
+```powershell
+.venv\Scripts\activate
+```
+
+## Initialize Database
 
 ```bash
 duckdb data/processed/thesis.db < scripts/create_thesis_db.sql
 ```
 
-Listing capture (step 1):
+## Step 1: Capture Listings
+
+Run simple search for each handle and year:
 
 ```bash
-skemman simple-search --location 1946/6870 --year 2016 --no-paginate --output data/processed/thesis.db
+for handle in 1946/2064 1946/6870; do
+  for year in $(seq 2010 2026); do
+    skemman simple-search --location "$handle" --year "$year" --output data/processed/thesis.db
+  done
+done
 ```
 
-Metadata retrieval (step 2, reads item URLs and inserts into metadata tables):
+PowerShell:
+
+```powershell
+$handles = @("1946/2064", "1946/6870")
+foreach ($handle in $handles) {
+  foreach ($year in 2010..2026) {
+    skemman simple-search --location $handle --year $year --output data/processed/thesis.db
+  }
+}
+```
+
+## Step 2: Load Metadata
+
+Load metadata for all thesis IDs that are missing metadata:
 
 ```bash
-python scripts/metadata_load.py --db data/processed/thesis.db --ids 4445,25337
+skemman metadata-load --db data/processed/thesis.db
 ```
 
-Notes:
+For a selected set of IDs:
 
-- The scraper builds the URL for you; the exact URL is printed and also stored in the `source_url`
-  column.
-- Pagination is on by default; use `--no-paginate` for a single page.
-- Use `--year` to filter; no additional limiting is applied.
-- You can pass locations as `1946/24751` or `1946 24751`.
-- Metadata retrieval (titles/abstracts/advisors/keywords/sponsors) is a second step and is not done
-  via `simple-search`, but rather `metadata_load`.
-
-Future work (not implemented yet):
-
-- Extract PDF text for public PDFs.
-- Classify topics and external involvement.
-- Export analysis tables.
-
-## Configuration
-
-Scrape controls live in `config/collections.yaml` (and the minimal `config/collections.small.yaml`).
-
-- `institutions[].enabled`: toggle institutions on/off
-- `institutions[].seed_handles`: starting collection handles
-- `year_min` / `year_max`: optional year filter based on the item date
-- `request_delay_seconds`, `user_agent`, `cache_html`: polite crawling
-
-## Data notes
-
-Outputs are written as Parquet in `data/processed/`. DuckDB can query Parquet directly without
-conversion (optional).
-
-## Important research and ethics notes
-
-Skemman contains copyrighted thesis material. This project is intended to extract structured
-metadata, short evidence snippets, and research classifications. Do not redistribute downloaded PDFs
-or large extracted text fields. Store raw PDFs locally only when necessary and permitted by the
-repository's access conditions.
-
-Note: PhD theses after 2016 are hosted in [Opin vísindi](https://opinvisindi.is/). Skemman scraping
-is the current focus; Opin vísindi support is a planned TODO.
-
-Use polite crawling:
-
-- add a descriptive user-agent;
-- sleep between requests;
-- cache downloaded pages;
-- avoid repeated large recrawls;
-- stop immediately if robots.txt or site terms prohibit the intended access pattern.
-
-## Proposed coding scheme: external involvement
-
-The default classifier uses a graded variable rather than a binary flag.
-
-| Code | Meaning                                          |
-|-----:|--------------------------------------------------|
-|    0 | No external actor visible                        |
-|    1 | External actor mentioned only as context         |
-|    2 | External data/source used                        |
-|    3 | Thesis done with or for an external organisation |
-|    4 | Employment/industrial project explicitly stated  |
-
-The classifier should keep an evidence sentence and confidence score for auditability.
-
-## Metadata schema
-
-`metadata_load.py` extracts structured metadata from Skemman item pages using both:
-
-- visible HTML label/value sections (`Titill`, `Útdráttur`, etc.)
-- embedded `<meta>` tags (`DCTERMS.*`, `citation_*`, etc.)
-
-The database uses a normalized schema:
-
-- `thesis_metadata`: core thesis-level metadata
-- `people`: deduplicated people table
-- `thesis_people`: thesis/person relationship table (`author`, `advisor`)
-- `keywords`: deduplicated keyword table
-- `thesis_keywords`: thesis/keyword relationship table
-
-A convenience view, `v_thesis_metadata`, exposes authors, advisors,
-and keywords as DuckDB array/list columns.
-
-| Database column              | HTML sources                                                  | Notes                                                          |
-|------------------------------|---------------------------------------------------------------|----------------------------------------------------------------|
-| `title_is`, `title_en`       | `Titill`, `Title`, `DCTERMS.title`, `citation_title`          | Icelandic vs English detected heuristically                    |
-| `abstract_is`, `abstract_en` | `Útdráttur`, `DCTERMS.abstract`, `dc.description.abstract`    | Icelandic abstract may be extracted from `DCTERMS.description` |
-| `degree_level`               | `Námsstig`, `Degree`, `dc.description.degree`, `DCTERMS.type` | Normalized to `bachelor`, `master`, `phd`                      |
-| `sponsor`                    | `Styrktaraðili`, `Sponsor`                                    | Stored as-is                                                   |
-| `note`                       | `Athugasemdir`, `Athugasemd`, `Notes`, `Note`                 | Concatenated with `; `                                         |
-| `related_url`                | `Tengd vefslóð`, `DCTERMS.relation`                           | Stored as-is                                                   |
-| `pdf_url`                    | `Skrár` table and `citation_pdf_url`                          | Prefers `Heildartexti` or `Meginmál`                           |
-| `university`                 | Breadcrumb trail                                              | Breadcrumb level 1                                             |
-| `school`                     | Breadcrumb trail                                              | Breadcrumb level 2                                             |
-| `study_category`             | Breadcrumb trail                                              | Breadcrumb level 3                                             |
-| `thesis_type`                | Breadcrumb trail                                              | Breadcrumb level 4                                             |
-
-### People extraction
-
-Authors and advisors are extracted into normalized tables:
-
-- `people`
-- `thesis_people`
-
-Roles currently include:
-
-- `author`
-- `advisor`
-
-### Keyword extraction
-
-Keywords are:
-
-- split on `;` and `,`
-- deduplicated case-insensitively
-- normalized into the `keywords` table
-- linked through `thesis_keywords`
-
-### Database diagram
-
-````mermaid
-erDiagram
-
-    thesis {
-        INTEGER id PK
-        DATE date_accepted
-        VARCHAR title
-        VARCHAR authors
-    }
-
-    thesis_metadata {
-        INTEGER thesis_id PK
-        VARCHAR title_is
-        VARCHAR title_en
-        VARCHAR abstract_is
-        VARCHAR abstract_en
-        VARCHAR degree_level
-        VARCHAR thesis_type
-        VARCHAR sponsor
-        VARCHAR note
-        VARCHAR related_url
-        VARCHAR raw_keywords
-        VARCHAR pdf_url
-        VARCHAR institution
-        VARCHAR school
-        VARCHAR university
-        VARCHAR faculty
-        VARCHAR study_category
-        VARCHAR thesis_type_label
-    }
-
-    people {
-        BIGINT id PK
-        VARCHAR name
-        INTEGER year_born
-        INTEGER year_died
-    }
-
-    thesis_people {
-        INTEGER thesis_id FK
-        BIGINT person_id FK
-        VARCHAR role
-        INTEGER sort_order
-    }
-
-    keywords {
-        BIGINT id PK
-        VARCHAR keyword
-        VARCHAR keyword_norm
-    }
-
-    thesis_keywords {
-        INTEGER thesis_id FK
-        BIGINT keyword_id FK
-        INTEGER sort_order
-    }
-
-    thesis ||--|| thesis_metadata : metadata
-
-    thesis ||--o{ thesis_people : has_people
-    people ||--o{ thesis_people : linked_to
-
-    thesis ||--o{ thesis_keywords : has_keywords
-    keywords ||--o{ thesis_keywords : linked_to
-````
-
-## Repository layout
-
-```text
-config/
-  collections.yaml          # seed handles and crawl settings
-  collections.small.yaml    # minimal sanity-check config
-scripts/
-  to_duckdb.py              # convert CSV/Parquet to DuckDB
-src/skemman_scraper/
-  cli.py                    # command line interface
-  config.py                 # config loading
-  harvest.py                # collection/item crawling
-  parse.py                  # HTML parsing helpers
-  pdf_text.py               # public PDF text extraction
-  classify.py               # rule-based classification scaffold
-  simple_search.py          # simple-search listing scraper
-  storage.py                # parquet/csv helpers
-  models.py                 # dataclasses
-  utils.py                  # HTTP/cache helpers
-data/
-  raw/                      # cached pages/PDFs; ignored by git
-  processed/                # parquet outputs; ignored by git
-outputs/                    # CSV/tables/figures; ignored by git
+```bash
+skemman metadata-load --db data/processed/thesis.db --ids 4445,25337
 ```
 
-## Suggested analysis questions
+Raw item HTML is cached under `data/raw/items/`. If `data/raw/items/<thesis_id>.html` exists, the loader reuses it instead of fetching the page again.
 
-- How do thesis topics differ between BS, MS, and PhD levels?
-- How do HÍ and HR differ in topic mix over time?
-- How often do theses show evidence of industry or public-sector collaboration?
-- Are external collaborations concentrated in particular departments, levels, or topic areas?
-- Do topic trends change before/after major institutional or curriculum changes?
+## Documentation
+
+The database mapping is documented in [docs/skemman_database_mapping.md](docs/skemman_database_mapping.md).
+
+Useful SQL checks are in `scripts/useful_queries.sql` and `scripts/test_metadata.sql`.
