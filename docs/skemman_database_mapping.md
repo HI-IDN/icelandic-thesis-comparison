@@ -27,7 +27,7 @@ The simple-search URL uses `dateIssued` as an exact year filter. The listing par
 
 ## 2. Metadata Load
 
-`skemman metadata-load` reads item URLs from `v_thesis` where no `thesis_metadata` row exists, unless explicit `--ids` or `--urls` are provided. The implementation lives in `src/skemman_scraper/metadata_load.py`; `scripts/metadata_load.py` is only a compatibility wrapper.
+`skemman metadata-load` reads item URLs from `v_thesis` where no `thesis_metadata` row exists, unless explicit `--ids` or `--urls` are provided. The implementation lives in `src/skemman_scraper/metadata_load.py`.
 
 For each item:
 
