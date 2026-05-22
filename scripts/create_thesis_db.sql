@@ -48,6 +48,10 @@ create table if not exists thesis_metadata
     raw_keywords
     varchar,
     pdf_url
+    varchar,
+    institution
+    varchar,
+    school
     varchar
 );
 

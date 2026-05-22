@@ -297,6 +297,13 @@ def pick_titles_from_metadata(metadata: dict[str, list[str]]) -> tuple[str | Non
     return title_is, title_en
 
 
+def extract_breadcrumbs(html: str) -> list[str]:
+    soup = BeautifulSoup(html, "html.parser")
+    links = soup.select("span.trail a")
+    return [normalise_text(link.get_text(" ")) for link in links if
+            normalise_text(link.get_text(" "))]
+
+
 def main() -> None:
     args = parse_args()
     urls = resolve_urls(args.ids, args.urls)
@@ -322,6 +329,9 @@ def main() -> None:
 
             (out_dir / f"{thesis_id}.html").write_text(html, encoding="utf-8")
             metadata = metadata_from_html(html)
+            breadcrumbs = extract_breadcrumbs(html)
+            institution = breadcrumbs[0] if len(breadcrumbs) >= 1 else None
+            school = breadcrumbs[1] if len(breadcrumbs) >= 2 else None
 
             title_is, title_en = pick_titles_from_metadata(metadata)
             abstract_is = get_first(metadata, "DCTERMS.abstract", "Útdráttur")
@@ -359,8 +369,10 @@ def main() -> None:
                                              sponsor,
                                              related_url,
                                              raw_keywords,
-                                             pdf_url)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                             pdf_url,
+                                             institution,
+                                             school)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     thesis_id,
@@ -374,6 +386,8 @@ def main() -> None:
                     related_url,
                     "; ".join(keywords) if keywords else None,
                     pdf_url,
+                    institution,
+                    school,
                 ],
             )
 
