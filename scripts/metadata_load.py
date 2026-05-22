@@ -255,6 +255,50 @@ def split_people_values(values: list[str]) -> list[str]:
     return [normalise_text(v) for v in out if normalise_text(v)]
 
 
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        cleaned = normalise_text(value)
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cleaned)
+    return out
+
+
+def normalize_thesis_types(values: list[str], degree_level: str | None) -> list[str]:
+    normalized = dedupe_preserve_order(values)
+    if degree_level != "master":
+        return normalized
+
+    cleaned: list[str] = []
+    for value in normalized:
+        low = value.casefold()
+        if "graduate diploma" in low:
+            continue
+        if "master" in low:
+            cleaned.append("Master's")
+            continue
+        cleaned.append(value)
+
+    cleaned = dedupe_preserve_order(cleaned)
+    has_thesis = any(value.casefold() == "thesis" for value in cleaned)
+    has_master = any(value.casefold() == "master's" for value in cleaned)
+
+    ordered: list[str] = []
+    if has_thesis:
+        ordered.append("Thesis")
+    if has_master:
+        ordered.append("Master's")
+    ordered.extend(value for value in cleaned if value.casefold() not in {"thesis", "master's"})
+
+    return ordered
+
+
 def pick_titles_from_metadata(metadata: dict[str, list[str]]) -> tuple[str | None, str | None]:
     values_all = get_all(
         metadata,
@@ -270,8 +314,13 @@ def pick_titles_from_metadata(metadata: dict[str, list[str]]) -> tuple[str | Non
         return None, None
 
     alternatives = get_all(metadata, "DCTERMS.alternative", "dc_title_alternative")
-    title_is_candidates = alternatives if alternatives else [v for v in values_all if
-                                                             is_icelandic_text(v)]
+    icelandic_values = [v for v in values_all if is_icelandic_text(v)]
+    if icelandic_values:
+        title_is_candidates = icelandic_values
+    elif alternatives:
+        title_is_candidates = alternatives
+    else:
+        title_is_candidates = []
     title_en_candidates = [v for v in values_all if not is_icelandic_text(v)]
 
     def unique(values: list[str]) -> list[str]:
@@ -346,7 +395,8 @@ def main() -> None:
 
             types = get_all(metadata, "DCTERMS.type", "Type", "dc.type")
             degree_raw = get_first(metadata, "Námsstig", "Degree", "dc.description.degree")
-            thesis_type = "; ".join(types) if types else None
+            degree_level = normalise_degree(degree_raw) or pick_degree(types)
+            thesis_type = "; ".join(normalize_thesis_types(types, degree_level)) if types else None
 
             sponsor = get_first(metadata, "Styrktaraðili", "Sponsor")
             related_url = get_first(metadata, "Tengd vefslóð", "Related URL", "DCTERMS.relation")
@@ -384,7 +434,7 @@ def main() -> None:
                     title_en,
                     abstract_is,
                     abstract_en,
-                    normalise_degree(degree_raw) or pick_degree(types),
+                    degree_level,
                     thesis_type,
                     sponsor,
                     related_url,
