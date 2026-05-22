@@ -322,12 +322,16 @@ def main() -> None:
 
     with duckdb.connect(args.db) as con:
         for url in urls:
-            html = session.get_text(url, use_cache=False)
             thesis_id = extract_id_from_url(url)
             if thesis_id is None:
                 continue
 
-            (out_dir / f"{thesis_id}.html").write_text(html, encoding="utf-8")
+            html_path = out_dir / f"{thesis_id}.html"
+            if html_path.exists():
+                html = html_path.read_text(encoding="utf-8")
+            else:
+                html = session.get_text(url, use_cache=False)
+                html_path.write_text(html, encoding="utf-8")
             metadata = metadata_from_html(html)
             breadcrumbs = extract_breadcrumbs(html)
             institution = breadcrumbs[0] if len(breadcrumbs) >= 1 else None
